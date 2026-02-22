@@ -225,6 +225,24 @@ var keySigNames = map[int]string{
 	4: "E", 5: "B", 6: "F#", 7: "C#",
 }
 
+// relativeMinorKeys maps the same key-signature number to the relative minor
+// tonic.  The relative minor is a minor third below the major tonic (the 6th
+// degree).  iRealPro minor keys are written with a trailing "-" (e.g. "A-").
+var relativeMinorKeys = map[int]string{
+	-7: "Ab", -6: "Eb", -5: "Bb", -4: "F", -3: "C",
+	-2: "G", -1: "D", 0: "A", 1: "E", 2: "B", 3: "F#",
+	4: "C#", 5: "G#", 6: "D#", 7: "G#",
+}
+
+// majorToKeySig is the reverse of keySigNames, built once at startup.
+var majorToKeySig = func() map[string]int {
+	m := make(map[string]int, len(keySigNames))
+	for n, name := range keySigNames {
+		m[name] = n
+	}
+	return m
+}()
+
 // ──────────────────────────────────────────────────────────────────────────────
 // iRealPro chord-body builder
 // ──────────────────────────────────────────────────────────────────────────────
@@ -432,6 +450,7 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 	song := &songData{Style: "Jazz"}
 
 	// ── Metadata ──────────────────────────────────────────────────────────
+	minorMode := false
 	for _, mt := range doc.Score.MetaTags {
 		v := strings.TrimSpace(mt.Value)
 		if v == "" {
@@ -445,6 +464,10 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 		case "composer", "arranger":
 			if song.Composer == "" {
 				song.Composer = v
+			}
+		case "keyMode":
+			if strings.ToLower(v) == "minor" {
+				minorMode = true
 			}
 		}
 	}
@@ -576,10 +599,18 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 	}
 
 	// ── Derive song key ───────────────────────────────────────────────────
-	if name, ok := keySigNames[keySig]; ok {
-		song.Key = name
+	if minorMode {
+		if name, ok := relativeMinorKeys[keySig]; ok {
+			song.Key = name + "-"
+		} else {
+			song.Key = "A-"
+		}
 	} else {
-		song.Key = "C"
+		if name, ok := keySigNames[keySig]; ok {
+			song.Key = name
+		} else {
+			song.Key = "C"
+		}
 	}
 	song.DefaultTS = defaultTS
 
@@ -595,6 +626,22 @@ func defaultOutputPath(inputPath string) string {
 	return inputPath[:len(inputPath)-len(ext)] + ".html"
 }
 
+// applyMinorMode converts a major key name (e.g. "Gb") to the corresponding
+// iRealPro minor key name (e.g. "Eb-").  If key is already minor (ends with
+// "-") it is returned unchanged.
+func applyMinorMode(key string) string {
+	if strings.HasSuffix(key, "-") {
+		return key
+	}
+	if n, ok := majorToKeySig[key]; ok {
+		if minor, ok := relativeMinorKeys[n]; ok {
+			return minor + "-"
+		}
+	}
+	// Unknown major key — just append "-".
+	return key + "-"
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // main
 // ──────────────────────────────────────────────────────────────────────────────
@@ -603,6 +650,7 @@ func main() {
 	// Parse arguments manually so that -o may appear anywhere in the list,
 	// including after positional arguments (e.g. "input.mscz -o out.html").
 	var outputFlag string
+	var minorFlag bool
 	var inputFiles []string
 	rawArgs := os.Args[1:]
 	for i := 0; i < len(rawArgs); i++ {
@@ -618,9 +666,12 @@ func main() {
 			}
 		case strings.HasPrefix(arg, "-o="):
 			outputFlag = arg[3:]
+		case arg == "-minor" || arg == "-m":
+			minorFlag = true
 		case arg == "-h" || arg == "--help":
-			fmt.Fprintln(os.Stderr, "Usage: muserealpro [-o output.html] input.mscz [input2.mscz ...]")
+			fmt.Fprintln(os.Stderr, "Usage: muserealpro [-o output.html] [-minor] input.mscz [input2.mscz ...]")
 			fmt.Fprintln(os.Stderr, "Converts MuseScore 4 files to iRealPro chord charts (HTML format).")
+			fmt.Fprintln(os.Stderr, "  -minor  treat key signature as minor (overrides keyMode metaTag in each file)")
 			os.Exit(0)
 		default:
 			inputFiles = append(inputFiles, arg)
@@ -628,7 +679,7 @@ func main() {
 	}
 
 	if len(inputFiles) == 0 {
-		fmt.Fprintln(os.Stderr, "Usage: muserealpro [-o output.html] input.mscz [input2.mscz ...]")
+		fmt.Fprintln(os.Stderr, "Usage: muserealpro [-o output.html] [-minor] input.mscz [input2.mscz ...]")
 		fmt.Fprintln(os.Stderr, "Converts MuseScore 4 files to iRealPro chord charts (HTML format).")
 		os.Exit(1)
 	}
@@ -652,6 +703,10 @@ func main() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading %s: %v\n", inputPath, err)
 			continue
+		}
+		// -minor flag overrides the per-file keyMode metaTag.
+		if minorFlag {
+			song.Key = applyMinorMode(song.Key)
 		}
 		songs = append(songs, *song)
 		fmt.Printf("Parsed: %s  (by %s, key %s)\n", song.Title, song.Composer, song.Key)

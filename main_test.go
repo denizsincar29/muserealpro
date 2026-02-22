@@ -479,3 +479,65 @@ func TestParseMSCZ_Thespian(t *testing.T) {
 		t.Error("expected at least one slash chord (<base> element), got 0")
 	}
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Minor key mode tests
+// ──────────────────────────────────────────────────────────────────────────────
+
+// sampleMSCX_MinorMode has a keyMode metaTag set to "minor".
+const sampleMSCX_MinorMode = `<?xml version="1.0" encoding="UTF-8"?>
+<museScore version="4.20">
+  <Score>
+    <metaTag name="title">Minor Song</metaTag>
+    <metaTag name="composer">Tester</metaTag>
+    <metaTag name="keyMode">minor</metaTag>
+    <Staff id="1">
+      <Measure number="1">
+        <voice>
+          <KeySig><accidental>-3</accidental></KeySig>
+          <TimeSig><sigN>4</sigN><sigD>4</sigD></TimeSig>
+          <Harmony><root>11</root><name>m7</name></Harmony>
+        </voice>
+      </Measure>
+    </Staff>
+  </Score>
+</museScore>`
+
+func TestParseMSCXReader_MinorKeyMode(t *testing.T) {
+	song, err := parseMSCXReader(strings.NewReader(sampleMSCX_MinorMode))
+	if err != nil {
+		t.Fatalf("parseMSCXReader error: %v", err)
+	}
+	// -3 flats → Eb major → C minor;  iRealPro: "C-"
+	if song.Key != "C-" {
+		t.Errorf("key = %q; want C- (keyMode=minor, keySig=-3)", song.Key)
+	}
+}
+
+func TestApplyMinorMode(t *testing.T) {
+	cases := []struct{ major, want string }{
+		{"C", "A-"},
+		{"G", "E-"},
+		{"D", "B-"},
+		{"A", "F#-"},
+		{"E", "C#-"},
+		{"B", "G#-"},
+		{"F#", "D#-"},
+		{"C#", "G#-"}, // 7 sharps: C# major → G# minor (enharmonic of Ab minor)
+		{"F", "D-"},
+		{"Bb", "G-"},
+		{"Eb", "C-"},
+		{"Ab", "F-"},
+		{"Db", "Bb-"},
+		{"Gb", "Eb-"},
+		{"Cb", "Ab-"},
+		// Already minor — must not double-append.
+		{"A-", "A-"},
+	}
+	for _, c := range cases {
+		got := applyMinorMode(c.major)
+		if got != c.want {
+			t.Errorf("applyMinorMode(%q) = %q; want %q", c.major, got, c.want)
+		}
+	}
+}

@@ -53,35 +53,71 @@ func TestQualityToIReal(t *testing.T) {
 		{"", ""},
 		{"M", ""},
 		{"maj", ""},
+		{"Maj", ""},
+		// MuseScore delta ("t") and caret ("^") major quality indicators.
+		{"t", ""},
+		{"^", ""},
+		// "Ma" and "ma" are also accepted major indicators.
+		{"Ma", ""},
+		{"ma", ""},
 		{"m", "-"},
 		{"min", "-"},
 		{"7", "7"},
 		{"maj7", "^7"},
 		{"M7", "^7"},
+		// "ma7" is a common MuseScore major-7 form.
+		{"ma7", "^7"},
 		{"m7", "-7"},
 		{"min7", "-7"},
 		{"m7b5", "h"},
 		{"ø7", "h"},
+		// MuseScore "0" = half-diminished (ø when using Jazz style).
+		{"0", "h"},
+		// Parenthetical half-dim form.
+		{"m7(b5)", "h"},
 		{"dim", "o"},
 		{"°", "o"},
 		{"dim7", "o7"},
 		{"aug", "+"},
 		{"+", "+"},
+		// Augmented dominant variants.
+		{"7#5", "7+"},
+		{"7(#5)", "7+"},
+		{"7b13", "7+"},
+		{"7(b13)", "7+"},
 		{"sus4", "sus"},
 		{"sus", "sus"},
 		{"sus2", "sus2"},
 		{"7sus4", "7sus"},
+		// 9sus and 13sus suspended chord extensions.
+		{"9sus4", "9sus"},
+		{"9sus", "9sus"},
+		{"13sus4", "13sus"},
+		{"13sus", "13sus"},
 		{"6", "6"},
 		{"m6", "-6"},
 		{"9", "9"},
 		{"maj9", "^9"},
+		{"ma9", "^9"},
 		{"m9", "-9"},
 		{"add9", "2"},
 		{"11", "11"},
 		{"13", "13"},
 		{"mM7", "-^7"},
+		// m(M7) parenthetical minor-major-7 form.
+		{"m(M7)", "-^7"},
 		{"7b9", "7b9"},
+		// Parenthetical forms that MuseScore stores in <name>.
+		{"7(b9)", "7b9"},
 		{"7#9", "7#9"},
+		{"7(#9)", "7#9"},
+		{"7(+9)", "7#9"},
+		{"7b5", "7b5"},
+		{"7(b5)", "7b5"},
+		{"7#11", "7#11"},
+		{"7(#11)", "7#11"},
+		// Confirmed in real Thespian.mscz file.
+		{"7(+11)", "7#11"},
 		{"alt", "alt"},
 		{"unknown_quality", "unknown_quality"}, // pass-through
 	}
@@ -175,11 +211,11 @@ func TestBuildIRealBody_RepeatAndRehearsalMark(t *testing.T) {
 	if !strings.Contains(body, "*A") {
 		t.Errorf("expected rehearsal mark *A in body, got %q", body)
 	}
-	if !strings.Contains(body, "[") {
-		t.Errorf("expected start-repeat '[' in body, got %q", body)
+	if !strings.Contains(body, "{") {
+		t.Errorf("expected start-repeat '{' in body, got %q", body)
 	}
-	if !strings.Contains(body, "]") {
-		t.Errorf("expected end-repeat ']' in body, got %q", body)
+	if !strings.Contains(body, "}") {
+		t.Errorf("expected end-repeat '}' in body, got %q", body)
 	}
 }
 
@@ -209,6 +245,53 @@ func TestBuildIRealBody_NoChords(t *testing.T) {
 	body := buildIRealBody(song)
 	if !strings.Contains(body, "x ") {
 		t.Errorf("expected 'x' placeholder for empty measure in body, got %q", body)
+	}
+}
+
+// TestParseMSCXReader_TrailingEmptyMeasures verifies that trailing empty
+// measures (which MuseScore often adds to pad a score) are trimmed before the
+// song data is returned.
+const sampleMSCX_TrailingEmpty = `<?xml version="1.0" encoding="UTF-8"?>
+<museScore version="4.20">
+  <Score>
+    <metaTag name="title">Trailing Empty Test</metaTag>
+    <metaTag name="composer">Tester</metaTag>
+    <Staff id="1">
+      <Measure number="1">
+        <voice>
+          <KeySig><accidental>0</accidental></KeySig>
+          <TimeSig><sigN>4</sigN><sigD>4</sigD></TimeSig>
+          <Harmony><root>14</root><name></name></Harmony>
+        </voice>
+      </Measure>
+      <Measure number="2">
+        <voice>
+          <Harmony><root>15</root><name>m7</name></Harmony>
+        </voice>
+      </Measure>
+      <Measure number="3">
+        <voice></voice>
+      </Measure>
+      <Measure number="4">
+        <voice></voice>
+      </Measure>
+    </Staff>
+  </Score>
+</museScore>`
+
+func TestParseMSCXReader_TrailingEmptyMeasures(t *testing.T) {
+	song, err := parseMSCXReader(strings.NewReader(sampleMSCX_TrailingEmpty))
+	if err != nil {
+		t.Fatalf("parseMSCXReader error: %v", err)
+	}
+	// Measures 3 and 4 have no content; they must be trimmed.
+	if len(song.Measures) != 2 {
+		t.Errorf("expected 2 measures after trimming, got %d", len(song.Measures))
+	}
+	body := buildIRealBody(song)
+	// The body must not end with "x Z" or "x |" (trailing empty-measure placeholder).
+	if strings.Contains(body, "x Z") || strings.Contains(body, "x |") {
+		t.Errorf("body must not contain trailing empty measures, got %q", body)
 	}
 }
 
@@ -477,6 +560,13 @@ func TestParseMSCZ_Thespian(t *testing.T) {
 	}
 	if slashChords == 0 {
 		t.Error("expected at least one slash chord (<base> element), got 0")
+	}
+
+	// The file contains a "7(+11)" quality name that must be mapped to "7#11"
+	// so it is valid in iRealPro output (parentheses are not permitted there).
+	body := buildIRealBody(song)
+	if strings.Contains(body, "7(+11)") {
+		t.Error("iRealPro body must not contain '7(+11)'; it should be converted to '7#11'")
 	}
 }
 

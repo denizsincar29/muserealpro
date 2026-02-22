@@ -70,6 +70,7 @@ type harmonyXML struct {
 	Root int    `xml:"root"`
 	Name string `xml:"name"`
 	Bass int    `xml:"bass"`
+	Base int    `xml:"base"` // MuseScore 4.50+ uses <base>; older versions use <bass>
 }
 
 type timeSigXML struct {
@@ -78,7 +79,8 @@ type timeSigXML struct {
 }
 
 type keySigXML struct {
-	Accidental int `xml:"accidental"`
+	Accidental *int `xml:"accidental"`
+	ConcertKey *int `xml:"concertKey"` // MuseScore 4.50+ uses <concertKey>; older versions use <accidental>
 }
 
 type rehearsalMarkXML struct {
@@ -480,7 +482,12 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 		// sometimes places them here rather than inside a <voice>).
 		for _, ks := range mx.KeySigs {
 			if !keySigFound {
-				keySig = ks.Accidental
+				switch {
+				case ks.Accidental != nil:
+					keySig = *ks.Accidental
+				case ks.ConcertKey != nil:
+					keySig = *ks.ConcertKey
+				}
 				keySigFound = true
 			}
 		}
@@ -530,7 +537,12 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 			// Key signature (only the first one determines the song key).
 			for _, ks := range v.KeySigs {
 				if !keySigFound {
-					keySig = ks.Accidental
+					switch {
+					case ks.Accidental != nil:
+						keySig = *ks.Accidental
+					case ks.ConcertKey != nil:
+						keySig = *ks.ConcertKey
+					}
 					keySigFound = true
 				}
 			}
@@ -549,8 +561,12 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 					continue
 				}
 				cd := chordData{Root: h.Root, Quality: h.Name}
-				if h.Bass >= 6 && h.Bass <= 26 {
-					cd.Bass = h.Bass
+				bass := h.Bass
+				if bass == 0 {
+					bass = h.Base // MuseScore 4.50+ uses <base> instead of <bass>
+				}
+				if bass >= 6 && bass <= 26 {
+					cd.Bass = bass
 				}
 				md.Chords = append(md.Chords, cd)
 			}

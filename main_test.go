@@ -437,3 +437,45 @@ func TestArgParsingFlagAfterPositional(t *testing.T) {
 		t.Errorf("inputFiles = %v; want [/tmp/song.mscz]", inputFiles)
 	}
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Thespian.mscz integration test
+// ──────────────────────────────────────────────────────────────────────────────
+
+// TestParseMSCZ_Thespian parses the real Thespian.mscz file and validates that
+// the MuseScore 4.50+ XML tags (<concertKey> and <base>) are handled correctly.
+func TestParseMSCZ_Thespian(t *testing.T) {
+	song, err := parseMSCZ("Thespian.mscz")
+	if err != nil {
+		t.Fatalf("parseMSCZ(Thespian.mscz) error: %v", err)
+	}
+
+	// Title and composer from metaTags.
+	if song.Title != "Thespian" {
+		t.Errorf("title = %q; want %q", song.Title, "Thespian")
+	}
+
+	// Key: concertKey=-6 → Gb  (verifies <concertKey> parsing).
+	if song.Key != "Gb" {
+		t.Errorf("key = %q; want Gb (concertKey=-6)", song.Key)
+	}
+
+	// At least one measure must have been parsed.
+	if len(song.Measures) == 0 {
+		t.Fatal("expected at least one measure, got 0")
+	}
+
+	// Count slash chords — the file contains harmonies with <base> elements
+	// (MuseScore 4.50+ syntax for slash chords).
+	slashChords := 0
+	for _, m := range song.Measures {
+		for _, c := range m.Chords {
+			if c.Bass != 0 {
+				slashChords++
+			}
+		}
+	}
+	if slashChords == 0 {
+		t.Error("expected at least one slash chord (<base> element), got 0")
+	}
+}

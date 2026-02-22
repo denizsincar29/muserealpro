@@ -53,6 +53,9 @@ func TestQualityToIReal(t *testing.T) {
 		{"", ""},
 		{"M", ""},
 		{"maj", ""},
+		// MuseScore delta ("t") and caret ("^") major quality indicators.
+		{"t", ""},
+		{"^", ""},
 		{"m", "-"},
 		{"min", "-"},
 		{"7", "7"},
@@ -62,6 +65,8 @@ func TestQualityToIReal(t *testing.T) {
 		{"min7", "-7"},
 		{"m7b5", "h"},
 		{"ø7", "h"},
+		// MuseScore "0" = half-diminished (ø when using Jazz style).
+		{"0", "h"},
 		{"dim", "o"},
 		{"°", "o"},
 		{"dim7", "o7"},
@@ -81,7 +86,17 @@ func TestQualityToIReal(t *testing.T) {
 		{"13", "13"},
 		{"mM7", "-^7"},
 		{"7b9", "7b9"},
+		// Parenthetical forms that MuseScore stores in <name>.
+		{"7(b9)", "7b9"},
 		{"7#9", "7#9"},
+		{"7(#9)", "7#9"},
+		{"7(+9)", "7#9"},
+		{"7b5", "7b5"},
+		{"7(b5)", "7b5"},
+		{"7#11", "7#11"},
+		{"7(#11)", "7#11"},
+		// Confirmed in real Thespian.mscz file.
+		{"7(+11)", "7#11"},
 		{"alt", "alt"},
 		{"unknown_quality", "unknown_quality"}, // pass-through
 	}
@@ -477,6 +492,13 @@ func TestParseMSCZ_Thespian(t *testing.T) {
 	}
 	if slashChords == 0 {
 		t.Error("expected at least one slash chord (<base> element), got 0")
+	}
+
+	// The file contains a "7(+11)" quality name that must be mapped to "7#11"
+	// so it is valid in iRealPro output (parentheses are not permitted there).
+	body := buildIRealBody(song)
+	if strings.Contains(body, "7(+11)") {
+		t.Error("iRealPro body must not contain '7(+11)'; it should be converted to '7#11'")
 	}
 }
 

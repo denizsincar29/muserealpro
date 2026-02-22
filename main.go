@@ -148,7 +148,7 @@ func tpcToNote(tpc int) string {
 
 func qualityToIReal(name string) string {
 	switch strings.TrimSpace(name) {
-	case "", "M", "maj", "major":
+	case "", "M", "maj", "major", "t", "^":
 		return ""
 	case "m", "mi", "min", "minor":
 		return "-"
@@ -158,7 +158,8 @@ func qualityToIReal(name string) string {
 		return "^7"
 	case "m7", "mi7", "min7":
 		return "-7"
-	case "m7b5", "m7-5", "ø7", "ø", "h", "h7", "half-dim", "hdim7":
+	// "0" is MuseScore's half-diminished symbol (renders as ø in Jazz style).
+	case "m7b5", "m7-5", "ø7", "ø", "h", "h7", "half-dim", "hdim7", "0":
 		return "h"
 	case "dim", "°", "o", "d":
 		return "o"
@@ -198,13 +199,13 @@ func qualityToIReal(name string) string {
 		return "-13"
 	case "mM7", "mMaj7", "m(maj7)", "minmaj7", "mM":
 		return "-^7"
-	case "7b9":
+	case "7b9", "7(b9)":
 		return "7b9"
-	case "7#9":
+	case "7#9", "7(#9)", "7(+9)":
 		return "7#9"
-	case "7b5", "7-5":
+	case "7b5", "7-5", "7(b5)":
 		return "7b5"
-	case "7#11":
+	case "7#11", "7(#11)", "7(+11)":
 		return "7#11"
 	case "alt", "7alt":
 		return "alt"

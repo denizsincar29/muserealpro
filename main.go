@@ -9,7 +9,6 @@ package main
 import (
 	"archive/zip"
 	"encoding/xml"
-	"flag"
 	"fmt"
 	"html"
 	"io"
@@ -51,7 +50,12 @@ type measureXML struct {
 	Number      string     `xml:"number,attr"`
 	StartRepeat *emptyElem `xml:"startRepeat"`
 	EndRepeat   *emptyElem `xml:"endRepeat"`
-	Voices      []voiceXML `xml:"voice"`
+	// KeySig/TimeSig/RehearsalMark can appear directly in the measure in
+	// MuseScore 4 as well as inside a <voice> element.
+	KeySigs        []keySigXML        `xml:"KeySig"`
+	TimeSigs       []timeSigXML       `xml:"TimeSig"`
+	RehearsalMarks []rehearsalMarkXML `xml:"RehearsalMark"`
+	Voices         []voiceXML         `xml:"voice"`
 }
 
 type voiceXML struct {
@@ -472,6 +476,32 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 			md.EndRepeat = true
 		}
 
+		// Key/time sig and rehearsal marks at the measure level (MuseScore 4
+		// sometimes places them here rather than inside a <voice>).
+		for _, ks := range mx.KeySigs {
+			if !keySigFound {
+				keySig = ks.Accidental
+				keySigFound = true
+			}
+		}
+		for _, ts := range mx.TimeSigs {
+			if ts.SigN <= 0 || ts.SigD <= 0 {
+				continue
+			}
+			if !defaultTSFound {
+				defaultTS = timeSigData{ts.SigN, ts.SigD}
+				defaultTSFound = true
+			} else {
+				t := timeSigData{ts.SigN, ts.SigD}
+				md.TimeSig = &t
+			}
+		}
+		for _, rm := range mx.RehearsalMarks {
+			if rm.Text != "" && md.RehearsalMark == "" {
+				md.RehearsalMark = rm.Text
+			}
+		}
+
 		for _, v := range mx.Voices {
 			// BarLine-based repeat markers (alternative encoding).
 			for _, bl := range v.BarLines {
@@ -554,12 +584,34 @@ func defaultOutputPath(inputPath string) string {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func main() {
+	// Parse arguments manually so that -o may appear anywhere in the list,
+	// including after positional arguments (e.g. "input.mscz -o out.html").
 	var outputFlag string
-	flag.StringVar(&outputFlag, "o", "", "output HTML file path")
-	flag.Parse()
+	var inputFiles []string
+	rawArgs := os.Args[1:]
+	for i := 0; i < len(rawArgs); i++ {
+		arg := rawArgs[i]
+		switch {
+		case arg == "-o":
+			if i+1 < len(rawArgs) {
+				i++
+				outputFlag = rawArgs[i]
+			} else {
+				fmt.Fprintln(os.Stderr, "flag -o requires an argument")
+				os.Exit(1)
+			}
+		case strings.HasPrefix(arg, "-o="):
+			outputFlag = arg[3:]
+		case arg == "-h" || arg == "--help":
+			fmt.Fprintln(os.Stderr, "Usage: muserealpro [-o output.html] input.mscz [input2.mscz ...]")
+			fmt.Fprintln(os.Stderr, "Converts MuseScore 4 files to iRealPro chord charts (HTML format).")
+			os.Exit(0)
+		default:
+			inputFiles = append(inputFiles, arg)
+		}
+	}
 
-	args := flag.Args()
-	if len(args) == 0 {
+	if len(inputFiles) == 0 {
 		fmt.Fprintln(os.Stderr, "Usage: muserealpro [-o output.html] input.mscz [input2.mscz ...]")
 		fmt.Fprintln(os.Stderr, "Converts MuseScore 4 files to iRealPro chord charts (HTML format).")
 		os.Exit(1)
@@ -567,7 +619,7 @@ func main() {
 
 	// Parse every input file.
 	var songs []songData
-	for _, inputPath := range args {
+	for _, inputPath := range inputFiles {
 		var (
 			song *songData
 			err  error
@@ -596,11 +648,11 @@ func main() {
 	// Determine the output path.
 	outputPath := outputFlag
 	if outputPath == "" {
-		defaultPath := defaultOutputPath(args[0])
+		defaultPath := defaultOutputPath(inputFiles[0])
 		// On Windows (single-file "Open With" scenario) show a save dialog;
 		// on other platforms just use the default path beside the input file.
 		var ok bool
-		outputPath, ok = getSaveFilePath(defaultPath, len(args) == 1)
+		outputPath, ok = getSaveFilePath(defaultPath, len(inputFiles) == 1)
 		if !ok {
 			// User cancelled the dialog.
 			fmt.Fprintln(os.Stderr, "Save cancelled.")

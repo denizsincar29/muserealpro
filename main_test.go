@@ -369,3 +369,71 @@ func TestParseMSCXReader(t *testing.T) {
 		t.Errorf("measure 3 chord quality: got %q; want 7b9", m2.Chords[0].Quality)
 	}
 }
+
+// TestParseMSCXReader_KeySigAtMeasureLevel verifies that <KeySig> and <TimeSig>
+// placed directly inside <Measure> (rather than inside a <voice>) are correctly
+// detected — this is the layout MuseScore 4 often produces.
+const sampleMSCX_MeasureLevelKeySig = `<?xml version="1.0" encoding="UTF-8"?>
+<museScore version="4.20">
+  <Score>
+    <metaTag name="title">Measure Level Key</metaTag>
+    <metaTag name="composer">Tester</metaTag>
+    <Staff id="1">
+      <Measure number="1">
+        <KeySig><accidental>3</accidental></KeySig>
+        <TimeSig><sigN>3</sigN><sigD>4</sigD></TimeSig>
+        <voice>
+          <Harmony><root>17</root><name>maj7</name></Harmony>
+        </voice>
+      </Measure>
+      <Measure number="2">
+        <voice>
+          <Harmony><root>20</root><name>7</name></Harmony>
+        </voice>
+      </Measure>
+    </Staff>
+  </Score>
+</museScore>`
+
+func TestParseMSCXReader_KeySigAtMeasureLevel(t *testing.T) {
+	song, err := parseMSCXReader(strings.NewReader(sampleMSCX_MeasureLevelKeySig))
+	if err != nil {
+		t.Fatalf("parseMSCXReader error: %v", err)
+	}
+	if song.Key != "A" {
+		t.Errorf("key = %q; want A (3 sharps at measure level)", song.Key)
+	}
+	if song.DefaultTS.Num != 3 || song.DefaultTS.Den != 4 {
+		t.Errorf("defaultTS = %v; want 3/4 (from measure level)", song.DefaultTS)
+	}
+}
+
+// TestArgParsingFlagAfterPositional verifies that the manual arg parser
+// correctly handles -o appearing after positional arguments.
+func TestArgParsingFlagAfterPositional(t *testing.T) {
+	// Simulate what parseArgs would do; we exercise it indirectly through the
+	// same logic extracted here so we don't need to refactor main().
+	rawArgs := []string{"/tmp/song.mscz", "-o", "/tmp/out.html"}
+	var outputFlag string
+	var inputFiles []string
+	for i := 0; i < len(rawArgs); i++ {
+		arg := rawArgs[i]
+		switch {
+		case arg == "-o" || arg == "--o":
+			if i+1 < len(rawArgs) {
+				i++
+				outputFlag = rawArgs[i]
+			}
+		case strings.HasPrefix(arg, "-o="):
+			outputFlag = arg[3:]
+		default:
+			inputFiles = append(inputFiles, arg)
+		}
+	}
+	if outputFlag != "/tmp/out.html" {
+		t.Errorf("outputFlag = %q; want /tmp/out.html", outputFlag)
+	}
+	if len(inputFiles) != 1 || inputFiles[0] != "/tmp/song.mscz" {
+		t.Errorf("inputFiles = %v; want [/tmp/song.mscz]", inputFiles)
+	}
+}

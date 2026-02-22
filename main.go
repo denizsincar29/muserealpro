@@ -148,18 +148,18 @@ func tpcToNote(tpc int) string {
 
 func qualityToIReal(name string) string {
 	switch strings.TrimSpace(name) {
-	case "", "M", "maj", "major", "t", "^":
+	case "", "M", "maj", "major", "Ma", "ma", "Maj", "t", "^":
 		return ""
 	case "m", "mi", "min", "minor":
 		return "-"
 	case "7":
 		return "7"
-	case "M7", "maj7", "Maj7", "Ma7", "^7":
+	case "M7", "maj7", "Maj7", "Ma7", "ma7", "^7":
 		return "^7"
 	case "m7", "mi7", "min7":
 		return "-7"
 	// "0" is MuseScore's half-diminished symbol (renders as ø in Jazz style).
-	case "m7b5", "m7-5", "ø7", "ø", "h", "h7", "half-dim", "hdim7", "0":
+	case "m7b5", "m7-5", "m7(b5)", "ø7", "ø", "h", "h7", "half-dim", "hdim7", "0":
 		return "h"
 	case "dim", "°", "o", "d":
 		return "o"
@@ -167,7 +167,7 @@ func qualityToIReal(name string) string {
 		return "o7"
 	case "aug", "+", "aug5", "augmented":
 		return "+"
-	case "aug7", "7+5", "7#5", "+7", "7+":
+	case "aug7", "7+5", "7#5", "7(#5)", "+7", "7+", "7b13", "7(b13)":
 		return "7+"
 	case "sus4", "sus":
 		return "sus"
@@ -175,13 +175,17 @@ func qualityToIReal(name string) string {
 		return "sus2"
 	case "7sus4", "7sus", "dom7sus4":
 		return "7sus"
+	case "9sus4", "9sus":
+		return "9sus"
+	case "13sus4", "13sus":
+		return "13sus"
 	case "6":
 		return "6"
 	case "m6", "min6":
 		return "-6"
 	case "9":
 		return "9"
-	case "M9", "maj9", "Maj9":
+	case "M9", "maj9", "Maj9", "ma9":
 		return "^9"
 	case "m9", "min9":
 		return "-9"
@@ -197,7 +201,7 @@ func qualityToIReal(name string) string {
 		return "13"
 	case "m13", "min13":
 		return "-13"
-	case "mM7", "mMaj7", "m(maj7)", "minmaj7", "mM":
+	case "mM7", "mMaj7", "m(maj7)", "m(M7)", "minmaj7", "mM":
 		return "-^7"
 	case "7b9", "7(b9)":
 		return "7b9"
@@ -283,7 +287,7 @@ func buildIRealBody(song *songData) string {
 
 		// Start-repeat barline.
 		if m.StartRepeat {
-			sb.WriteString("[")
+			sb.WriteString("{")
 		}
 
 		// Chord symbols for this measure.
@@ -305,7 +309,7 @@ func buildIRealBody(song *songData) string {
 		isLast := i == len(song.Measures)-1
 		switch {
 		case m.EndRepeat:
-			sb.WriteString("]")
+			sb.WriteString("}")
 		case isLast:
 			sb.WriteString("Z")
 		default:
@@ -491,8 +495,18 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 	defaultTS := timeSigData{4, 4}
 	defaultTSFound := false
 
+	// nextStartRepeat propagates a StartRepeat to the following measure when an
+	// end-start-repeat barline is encountered (a single MuseScore barline element
+	// that represents both an end-repeat and a start-repeat at the same position).
+	nextStartRepeat := false
 	for _, mx := range staff.Measures {
 		md := measureData{}
+
+		// Carry over a deferred start-repeat from the previous measure.
+		if nextStartRepeat {
+			md.StartRepeat = true
+			nextStartRepeat = false
+		}
 
 		// Repeat markers at the measure level.
 		if mx.StartRepeat != nil {
@@ -539,8 +553,11 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 				switch bl.Subtype {
 				case "start-repeat":
 					md.StartRepeat = true
-				case "end-repeat", "end-start-repeat":
+				case "end-repeat":
 					md.EndRepeat = true
+				case "end-start-repeat":
+					md.EndRepeat = true
+					nextStartRepeat = true
 				}
 			}
 
@@ -597,6 +614,20 @@ func parseMSCXReader(r io.Reader) (*songData, error) {
 		}
 
 		song.Measures = append(song.Measures, md)
+	}
+
+	// ── Trim trailing content-less measures ───────────────────────────────
+	// MuseScore often pads a score with many empty trailing measures.  Drop
+	// any measures from the end that carry no chord symbols, no repeat
+	// markers, no rehearsal marks, and no time-signature changes.
+	for len(song.Measures) > 0 {
+		last := song.Measures[len(song.Measures)-1]
+		if len(last.Chords) == 0 && !last.StartRepeat && !last.EndRepeat &&
+			last.RehearsalMark == "" && last.TimeSig == nil {
+			song.Measures = song.Measures[:len(song.Measures)-1]
+		} else {
+			break
+		}
 	}
 
 	// ── Derive song key ───────────────────────────────────────────────────
